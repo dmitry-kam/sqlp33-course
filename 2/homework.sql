@@ -63,17 +63,6 @@ values
 
 -- 3 задание
 
---Задание 3. Создайте таблицу employee_salary_history с полями:
---
---emp_id - id сотрудника
---salary_old - последнее значение salary (если не найдено, то 0)
---salary_new - новое значение salary
---difference - разница между новым и старым значением salary
---last_update - текущая дата и время
---Напишите триггерную функцию, которая срабатывает при добавлении новой записи о
---сотруднике или при обновлении значения salary в таблице employee_salary,
---и заполняет таблицу employee_salary_history данными.
-
 create table employee_salary_history (
 	emp_id int,
 	salary_old int,
@@ -90,6 +79,7 @@ begin
 		then
 			SELECT salary FROM hr.employee_salary into lastEmployeeSalary
 				WHERE emp_id = new.emp_id order by effective_from desc LIMIT 1 OFFSET 1;
+				-- возможно стоит сортировать по order_id
 
 			insert into employee_salary_history (emp_id, salary_old, salary_new, difference)
 					values (
@@ -144,3 +134,13 @@ WHERE order_id=125004;
 
 -- 4 задание
 
+CREATE or replace PROCEDURE createEmployeeSalaryRecord(orderId int4, empId int4, salary numeric, effectiveFrom timestamp)
+	AS $$
+	BEGIN
+		INSERT INTO hr.employee_salary(order_id, emp_id, salary, effective_from) VALUES (orderId, empId, salary, effectiveFrom);
+		COMMIT;
+	END;
+$$ LANGUAGE plpgsql;
+
+
+call createEmployeeSalaryRecord(10003, 2736, 60000, '2023-10-31');
