@@ -40,45 +40,6 @@ COMMENT ON SCHEMA public IS 'standard public schema';
 -- Name: filldepartmentshistory(); Type: FUNCTION; Schema: public; Owner: -
 --
 
-CREATE FUNCTION public.filldepartmentshistory() RETURNS trigger
-    LANGUAGE plpgsql
-    AS $$
-begin
-	if tg_op  in ('UPDATE', 'INSERT')
-		then 
-			if tg_op = 'UPDATE' AND new.id <> old.id
-				then raise exception 'Bad update!';
-			end if;
-			insert into departments_history ("action", id, "name", city_id, city_name, address, boss_id, boss_name)
-					values (
-						tg_op,
-						new.id, 
-						new."name", 
-						new.city_id,
-						(select "name" as city_name from public.cities where id = new.city_id),
-						new.address,
-						new.boss_id,
-						(select concat(lastname, ' ', firstname) as boss_name from public.employees where id = new.boss_id)
-					);
-	elseif tg_op = 'DELETE'
-		then
-			insert into departments_history ("action", id, "name", city_id, city_name, address, boss_id, boss_name)
-					values (
-						tg_op,
-						old.id, 
-						old."name", 
-						old.city_id,
-						(select "name" as city_name from public.cities where id = old.city_id),
-						old.address,
-						old.boss_id,
-						(select concat(lastname, ' ', firstname) as boss_name from public.employees where id = old.boss_id)
-					);
-	end if;
-	return new;
-end;
-$$;
-
-
 SET default_tablespace = '';
 
 SET default_table_access_method = heap;
@@ -456,13 +417,6 @@ ALTER TABLE ONLY public.positions
 -- Name: departments writedepartmenthistory; Type: TRIGGER; Schema: public; Owner: -
 --
 
-CREATE TRIGGER writedepartmenthistory BEFORE INSERT OR DELETE OR UPDATE ON public.departments FOR EACH ROW EXECUTE FUNCTION public.filldepartmentshistory();
-
-
---
--- TOC entry 4730 (class 2606 OID 17167)
--- Name: career career_fk_boss; Type: FK CONSTRAINT; Schema: public; Owner: -
---
 
 ALTER TABLE ONLY public.career
     ADD CONSTRAINT career_fk_boss FOREIGN KEY (boss_id) REFERENCES public.employees(id) ON UPDATE CASCADE;

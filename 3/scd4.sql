@@ -16,6 +16,7 @@ begin
 						new.boss_id,
 						(select concat(lastname, ' ', firstname) as boss_name from public.employees where id = new.boss_id)
 					);
+			return new;
 	elseif tg_op = 'DELETE'
 		then
 			insert into departments_history ("action", id, "name", city_id, city_name, address, boss_id, boss_name)
@@ -29,8 +30,8 @@ begin
 						old.boss_id,
 						(select concat(lastname, ' ', firstname) as boss_name from public.employees where id = old.boss_id)
 					);
+			return old;
 	end if;
-	return new;
 end;
 $$ language plpgsql
 
@@ -56,7 +57,6 @@ on conflict (id) do update
 
 INSERT INTO public.departments(id, "name", city_id, address, boss_id)
 values (4, 'Developers', 1, 'Independece square 2', 1);
-
 
 UPDATE public.departments
 SET city_id = 2, address = 'Red square 1'
