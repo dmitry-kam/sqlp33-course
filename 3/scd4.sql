@@ -1,35 +1,23 @@
-create or replace function fillDepartmentsHistory() returns trigger as $$
+create or replace function fillEmployeesHistory() returns trigger as $$
 begin
-	if tg_op  in ('UPDATE', 'INSERT')
-		then
-			if tg_op = 'UPDATE' AND new.id <> old.id
+	if tg_op = 'UPDATE' and new.id <> old.id
 				then raise exception 'Bad update!';
 			end if;
-			insert into departments_history ("action", id, "name", city_id, city_name, address, boss_id, boss_name)
-					values (
-						tg_op,
-						new.id,
-						new."name",
-						new.city_id,
-						(select "name" as city_name from public.cities where id = new.city_id),
-						new.address,
-						new.boss_id,
-						(select concat(lastname, ' ', firstname) as boss_name from public.employees where id = new.boss_id)
-					);
+
+	insert into employees_scd4 (emp_id, lastname, firstname, email, immediate_boss_id)
+	values (
+		old.id,
+		old.lastname,
+		old.email,
+		old.firstname,
+		old.immediate_boss_id
+	);
+
+	if tg_op = 'UPDATE'
+		then
 			return new;
 	elseif tg_op = 'DELETE'
 		then
-			insert into departments_history ("action", id, "name", city_id, city_name, address, boss_id, boss_name)
-					values (
-						tg_op,
-						old.id,
-						old."name",
-						old.city_id,
-						(select "name" as city_name from public.cities where id = old.city_id),
-						old.address,
-						old.boss_id,
-						(select concat(lastname, ' ', firstname) as boss_name from public.employees where id = old.boss_id)
-					);
 			return old;
 	end if;
 end;
@@ -37,30 +25,30 @@ $$ language plpgsql
 
 ------------
 
-create or replace trigger writeDepartmentHistory
-before insert or update or delete
-on public.departments
-for each row execute function fillDepartmentsHistory()
+create or replace trigger writeEmployeeHistory
+before update or delete
+on public.employees
+for each row execute function fillEmployeesHistory()
 
 
 -- check
-select * from departments_history;
+select * from employees_scd4;
 
 -- tests
-INSERT INTO public.departments(id, "name", city_id, address, boss_id)
-values (1, 'The first department', 1, 'Independece square 1', 1)
+INSERT INTO public.employees (id, lastname, firstname, email, immediate_boss_id)
+values (2, 'TestLastname', 'TestFirstname', 'test@test.com', 1)
 on conflict (id) do update
-	set "name" = EXCLUDED."name", city_id = EXCLUDED.city_id,
-	address = EXCLUDED.address, boss_id = EXCLUDED.boss_id
-	where departments.id = EXCLUDED.id;
+	set lastname = EXCLUDED.lastname, firstname = EXCLUDED.firstname,
+	email = EXCLUDED.email, immediate_boss_id = EXCLUDED.immediate_boss_id
+	where employees.id = EXCLUDED.id;
 -- в видео на on conflict было указание имени ключа и new.* - у меня так не срабатывает
 
-INSERT INTO public.departments(id, "name", city_id, address, boss_id)
-values (4, 'Developers', 1, 'Independece square 2', 1);
+INSERT INTO public.employees (id, lastname, firstname, email, immediate_boss_id)
+values (3, 'TestLastname2', 'TestFirstname2', 'test2@test.com', 1);
 
-UPDATE public.departments
-SET city_id = 2, address = 'Red square 1'
-WHERE id=4;
+UPDATE public.employees
+SET immediate_boss_id = 2, email = 'test3@test.com'
+WHERE id=3;
 
-delete from public.departments
-WHERE id=4;
+delete from public.employees
+WHERE id=3;
