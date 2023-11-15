@@ -13,6 +13,7 @@ begin
 		old.immediate_boss_id
 	);
 
+    -- можно сделать триггер after и вернуть null
 	if tg_op = 'UPDATE'
 		then
 			return new;
