@@ -66,8 +66,3 @@ insert into inventory (inventory_id, film_id, store_id) values
 (123, 240, 2);
 update inventory set store_id = 1 where inventory_id = 123 and film_id = 240 and store_id = 2;
 delete from inventory where inventory_id = 123 and film_id = 240;
-
-
-----------------------------------------------
-
--- 2 task
