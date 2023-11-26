@@ -47,14 +47,14 @@ CREATE RULE inventory_update_1 AS ON UPDATE TO inventory
 WHERE (new.store_id != old.store_id)
 DO INSTEAD (
 INSERT INTO inventory VALUES (new.*);
-DELETE FROM inventory_store1 WHERE inventory_id = old.inventory_id and film_id = old.film_id
+DELETE FROM inventory_store1 WHERE inventory_id = old.inventory_id
 );
 
 CREATE RULE inventory_update_2 AS ON UPDATE TO inventory
 WHERE (new.store_id != old.store_id)
 DO INSTEAD (
 INSERT INTO inventory VALUES (new.*);
-DELETE FROM inventory_store2 WHERE inventory_id = old.inventory_id and film_id = old.film_id
+DELETE FROM inventory_store2 WHERE inventory_id = old.inventory_id
 );
 
 -- tests
