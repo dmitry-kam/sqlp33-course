@@ -158,6 +158,7 @@ SELECT getRandomEnum(null::courier_status_enum);
 --		value * 2 строк случайных данных в отношение contact.
 --		value * 1 строк случайных данных в отношение user.
 --		value * 5 строк случайных данных в отношение courier.
+--- v1
 CREATE or replace PROCEDURE insert_test_data(qty int4)
 	AS $$
 	declare
@@ -273,6 +274,85 @@ CREATE or replace PROCEDURE insert_test_data(qty int4)
 	   	END LOOP;
 	END;
 $$ LANGUAGE plpgsql;
+
+
+-- чистовик v2 (через tablesample)
+-- https://habr.com/ru/articles/266759/
+CREATE or replace PROCEDURE insert_test_data(qty int4)
+	AS $$
+	declare
+	offsetArr int;
+	part int;
+	begin
+			select COUNT(*)::integer INTO offsetArr
+			from public.account;
+			-- big query instead loop with a lot of subqueries
+
+			INSERT INTO public.account ("name")
+				select getRandomString(30) from generate_series(1, qty);
+			COMMIT;
+
+			INSERT INTO public."user" (last_name, first_name, dismissed)
+			(
+				select
+					getRandomString(20) as last_name,
+					getRandomString(15) as first_name,
+					getRandomBool() as dismissed
+			 	from generate_series(1, qty)
+			);
+			COMMIT;
+
+			INSERT INTO public.contact (last_name, first_name, account_id)
+			(
+				select
+				getRandomString(20) as last_name, getRandomString(15) as first_name, id
+				from public.account order by RANDOM() limit 2*qty
+			);
+			COMMIT;
+
+			if offsetArr >= 1000 then
+	  			part := 1;
+	  		elseif offsetArr >= 500 then
+		  		part := 5;
+	  		else
+		  		part := 10;
+		  	end if;
+
+			FOR i IN 1..5*qty loop
+				if i >= 1000 then
+			        part := 1;
+			  	end if;
+
+				INSERT INTO public.courier(
+						from_place, where_place,
+						"name", description,
+						account_id, contact_id,
+						user_id, status,
+						created_date)
+				select getRandomString(80) as from_place,
+				   getRandomString(80) as where_place,
+				   getRandomString(30) as "name",
+				   getRandomString(100) as description,
+				   case
+						when part >= 10 then (select id from public.account order by random() limit 1)
+						else (select id from public.account TABLESAMPLE BERNOULLI(part) limit 1)
+				   end,
+				   case
+						when part >= 10 then (select id from public.contact order by random() limit 1)
+						else (select id from public.contact TABLESAMPLE BERNOULLI(part) limit 1)
+				   end,
+				   case
+						when part >= 10 then (select id from public."user" order by random() limit 1)
+						else (select id from public."user" TABLESAMPLE BERNOULLI(part) limit 1)
+				   end,
+				   getRandomEnum(null::courier_status_enum) as status,
+				   getRandomDate() as created_date;
+
+	   		END LOOP;
+	    COMMIT;
+	END;
+$$ LANGUAGE plpgsql;
+
 
 CREATE or replace PROCEDURE erase_test_data()
 	AS $$
@@ -570,15 +650,15 @@ CREATE or replace VIEW courier_statistic AS
 select
 	a.account_id as account_id,
 	a.account as account,
-	ao.qty as count_courier,
-	ofinished.qty as count_complete,
-	ocancelled.qty as count_canceled,
-	relprev."percent" as percent_relative_prev_month,
-	wp.qty as count_where_place,
-	cont.qty as count_contact,
-	arrusers.cancel_user_array as cansel_user_array
+	coalesce(ao.qty,0) AS count_courier,
+       coalesce(ofinished.qty,0) AS count_complete,
+       coalesce(ocancelled.qty,0) AS count_canceled,
+       coalesce(relprev."percent",0) AS percent_relative_prev_month,
+       coalesce(wp.qty,0) AS count_where_place,
+       coalesce(cont.qty,0) AS count_contact,
+       coalesce(arrusers.cancel_user_array, '{}') AS cansel_user_array
 from grouped_accounts_list a
-	join all_orders_by_accounts ao on a.account_id = ao.account_id
+	left join all_orders_by_accounts ao on a.account_id = ao.account_id
 	join orders_by_accounts ocancelled on a.account_id = ocancelled.account_id and ocancelled.status = 'Отменен'::courier_status_enum
 	join orders_by_accounts ofinished on a.account_id = ofinished.account_id and ofinished.status = 'Выполнено'::courier_status_enum
 	join percent_relative_by_accounts relprev on a.account_id = relprev.account_id
@@ -586,6 +666,99 @@ from grouped_accounts_list a
 	join contacts_by_accounts cont on a.account_id = cont.account_id
 	join cancelleduseridarray_by_accounts arrusers on a.account_id = arrusers.account_id
 order by account;
+
+
+--- v2 без других представлений
+CREATE OR REPLACE VIEW courier_statistic AS
+SELECT a.account_id AS account_id,
+       a.account AS account,
+       coalesce(ao.qty,0) AS count_courier,
+       coalesce(ofinished.qty,0) AS count_complete,
+       coalesce(ocancelled.qty,0) AS count_canceled,
+       coalesce(relprev."percent",0) AS percent_relative_prev_month,
+       coalesce(wp.qty,0) AS count_where_place,
+       coalesce(cont.qty,0) AS count_contact,
+       coalesce(arrusers.cancel_user_array, '{}') AS cansel_user_array
+FROM
+  (SELECT id AS account_id,
+          "name" AS account
+   FROM account) a
+LEFT JOIN
+  (SELECT tt.account_id AS account_id,
+          SUM(tt.qty) AS qty
+   FROM
+     (SELECT account_id,
+             status,
+             count(*) AS qty
+      FROM courier
+      GROUP BY account_id,
+               status) tt
+   GROUP BY account_id) ao ON a.account_id = ao.account_id
+LEFT JOIN
+  (SELECT account_id,
+          count(*) AS qty
+   FROM courier
+   WHERE status = 'Отменен'::courier_status_enum
+   GROUP BY account_id) ocancelled ON a.account_id = ocancelled.account_id
+LEFT JOIN
+  (SELECT account_id,
+          count(*) AS qty
+   FROM courier
+   WHERE status = 'Выполнено'::courier_status_enum
+   GROUP BY account_id) ofinished ON a.account_id = ofinished.account_id
+LEFT JOIN
+  (SELECT t.account_id,
+          t.currentMonthQty,
+          t2.prevMonthQty,
+          CASE
+              WHEN t2.prevMonthQty = 0 THEN 0
+              ELSE round(t.currentMonthQty::numeric/t2.prevMonthQty::numeric * 100, 2)
+          END AS percent
+   FROM
+     (SELECT account_id,
+             count(*) AS currentMonthQty
+      FROM courier c2
+      WHERE EXTRACT(YEAR
+                    FROM c2.created_date)=EXTRACT(YEAR
+                                                  FROM now())
+        AND EXTRACT(MONTH
+                    FROM c2.created_date)=EXTRACT(MONTH
+                                                  FROM now())
+      GROUP BY account_id) t
+   JOIN
+     (SELECT account_id,
+             count(*) AS prevMonthQty
+      FROM courier c2
+      WHERE EXTRACT(YEAR
+                    FROM c2.created_date)=EXTRACT(YEAR
+                                                  FROM now())
+        AND EXTRACT(MONTH
+                    FROM c2.created_date)=(EXTRACT(MONTH
+                                                   FROM now())-1)
+      GROUP BY account_id) t2 ON t.account_id = t2.account_id) relprev ON a.account_id = relprev.account_id
+LEFT JOIN
+  (SELECT t.account_id,
+          count(*) AS qty
+   FROM
+     (SELECT account_id,
+             count(*) AS qty
+      FROM courier
+      GROUP BY account_id,
+               where_place) AS t
+   GROUP BY t.account_id) wp ON a.account_id = wp.account_id
+LEFT JOIN
+  (SELECT account_id,
+          count(*) AS qty
+   FROM contact
+   GROUP BY account_id) cont ON a.account_id = cont.account_id
+LEFT JOIN
+  (SELECT account_id,
+          array_agg(user_id) AS cancel_user_array
+   FROM courier
+   WHERE status = 'Отменен'::courier_status_enum
+   GROUP BY account_id) arrusers ON a.account_id = arrusers.account_id
+ORDER BY account;
+
 
 
 --- черновик с подзапросами
