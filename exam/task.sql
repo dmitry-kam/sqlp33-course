@@ -106,6 +106,15 @@ begin
 end;
 $$ language plpgsql
 
+---v2
+-- todo: Генерация символьных типов должна быть от 1 до N, а не N минус пустые элементы массива.
+create or replace function getRandomString(len int4, out rStr varchar) as $$
+begin
+	SELECT array_to_string(
+	array(select substring('абвгдеёжзийклмнопрстуфхцчшщьыъэюя', CEILING(random() * 33)::integer + 1, 1)
+  FROM   generate_series(1, len)), '') into rStr;end;
+$$ language plpgsql
+
 
 create or replace function getRandomBool(out rStr bool) as $$
 begin
@@ -149,7 +158,7 @@ SELECT getRandomDate();
 SELECT getRandomEnum(null::courier_status_enum);
 
 ----------- вставка случайных тестовых данных (ушел от большого числа подзапросов в сторону вставок большими чанками
--- чтобы ускорить время вставки
+-- чтобы ускорить время вставки - получилось примерно 60-70с для 10k)
 
 -- https://habr.com/ru/articles/747348/
 -- https://www.gab.lc/articles/bigdata_postgresql_order_by_random/
@@ -276,7 +285,7 @@ CREATE or replace PROCEDURE insert_test_data(qty int4)
 $$ LANGUAGE plpgsql;
 
 
--- чистовик v2 (через tablesample)
+-- чистовик v2 (через tablesample, для 10k отрабатывает примерно за 25 секунд) - в таком виде принято
 -- https://habr.com/ru/articles/266759/
 CREATE or replace PROCEDURE insert_test_data(qty int4)
 	AS $$
@@ -585,6 +594,9 @@ select t.account_id, count(*) as qty from (
 ) as t
 group by t.account_id;
 
+-- условие: count_contact --количество контактов по контрагенту, которым доставляются документы
+-- ответ заказчика: count_contact - вопрос про заявки, которые в данный момент выполняются, а не все
+-- todo: нужно сделать from courier с условием по статусу и группировкой по аккаунту, left join к контактам со связкой по аккаунту
 CREATE or replace VIEW contacts_by_accounts AS
 select account_id, count(*) as qty from contact
 	group by account_id;
@@ -668,7 +680,7 @@ from grouped_accounts_list a
 order by account;
 
 
---- v2 без других представлений
+--- v2 без других представлений (в таком виде принято)
 CREATE OR REPLACE VIEW courier_statistic AS
 SELECT a.account_id AS account_id,
        a.account AS account,
